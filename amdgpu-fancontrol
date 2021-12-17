@@ -5,7 +5,7 @@ SLEEP_INTERVAL=1  # in s
 
 # set 3 temps (in degrees C * 1000) and corresponding pwm values in descending order
 TEMPS="60000:75000:90000"
-PWMS="0:153:255"
+PWMS="0:70:255"
 
 # hwmon paths, hardcoded for one amdgpu card, adjust as needed
 FILE_PWM=$(echo /sys/class/drm/card0/device/hwmon/hwmon?/pwm1)
@@ -13,6 +13,24 @@ FILE_FANMODE=$(echo /sys/class/drm/card0/device/hwmon/hwmon?/pwm1_enable)
 FILE_TEMP=$(echo /sys/class/drm/card0/device/hwmon/hwmon?/temp1_input)
 FILE_MAX_PWM=$(echo /sys/class/drm/card0/device/hwmon/hwmon?/pwm1_max)
 MAX_PWM=$(cat "$FILE_MAX_PWM")
+
+if [ "$TEST" = "true" ]; then
+  FILE_PWM=./pwm
+  FILE_FANMODE=./fanmode
+  FILE_TEMP=./temp
+fi
+
+debug() {
+  if [ "$DEBUG" = "true" ]; then
+    echo "$1"
+  fi
+}
+
+# set fan mode to max(0), manual(1) or auto(2)
+set_fanmode() {
+  debug "setting fan mode to $1"
+  echo "$1" > "$FILE_FANMODE"
+}
 
 reset_on_exit() {
   echo "exiting, resetting fan to auto control..."
@@ -32,23 +50,11 @@ if [ ! -f "$FILE_PWM" ] || [ ! -f "$FILE_FANMODE" ] || [ ! -f "$FILE_TEMP" ]; th
 fi
 
 # checking for privileges
-if [ "$(id -u)" -ne 0 ]
+if [ "$(id -u)" -ne 0 ] && [ "$TEST" != "true" ]
 then
   echo "Writing to sysfs requires privileges, relaunch as root"
   exit 1
 fi
-
-debug() {
-  if [ "$DEBUG" = "true" ]; then
-    echo "$1"
-  fi
-}
-
-# set fan mode to max(0), manual(1) or auto(2)
-set_fanmode() {
-  debug "setting fan mode to $1"
-  echo "$1" > "$FILE_FANMODE"
-}
 
 set_pwm() {
   NEW_PWM=$1
@@ -105,10 +111,8 @@ interpolate_pwm() {
     return
   fi
 
-  for i in 3 2 1; do
-    if [ "$TEMP" -gt "$(nth_elem "$TEMPS" "$i")" ]; then
-      continue
-    fi
+  for i in 2 1; do
+    [ "$TEMP" -gt "$(nth_elem "$TEMPS" "$i")" ] && continue
 
     # interpolate linearly
     LOWERTEMP="$(nth_elem "$TEMPS" "$((i+1))")"
